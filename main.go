@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"flag"
+	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/songgao/water"
@@ -12,6 +13,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -22,24 +25,68 @@ const (
 	TCP_CHECKSUM_OFFSET = 16
 )
 
-type TableEntry struct {
+type Binding struct {
 	targetedIp   net.IP
 	targetedPort layers.TCPPort
 	realPort     layers.TCPPort
 }
 
+type arrayFlags []string
+
+func (i *arrayFlags) String() string {
+	return fmt.Sprintf("%+v", *i)
+}
+
+func (i *arrayFlags) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
 var (
 	targetedCidr      = flag.String("targeted-cidr", "", "cidr to listen and to proxy to localhosst. For example 192.168.42.0/24")
 	gardeningCidr     = flag.String("gardening-cidr", "", "cidr used for internal gardening, it must have the same size than targetedCidr")
+	bindings          arrayFlags
 	targetedLoopback  net.IP
 	targetedIpnet     *net.IPNet
 	gardeningLoopback net.IP
 	gardeningIpnet    *net.IPNet
 	slash             int
-	table             = [2]TableEntry{{net.IPv4(192, 168, 42, 42), 4242, 8042}, {net.IPv4(192, 168, 42, 43), 4242, 8043}}
+	table             []Binding
 )
 
+func parseBinding(s string) Binding {
+	part := strings.Split(s, ":")
+	if len(part) != 3 {
+		log.Fatalf("%s is a invalid binding\n", s)
+	}
+
+	ip := net.ParseIP(part[0])
+
+	if ip == nil {
+		log.Fatalf("%s of binding %s is not a valid IP\n", part[0], s)
+	}
+
+	decimalBase := 10
+	portUintSize := 16
+	targetedPort, err := strconv.ParseUint(part[1], decimalBase, portUintSize)
+	if err != nil {
+		log.Fatalf("%s of binding %s is not a valid port\n", part[1], s)
+	}
+
+	realPort, err := strconv.ParseUint(part[2], decimalBase, portUintSize)
+	if err != nil {
+		log.Fatalf("%s of binding %s is not a valid port\n", part[2], s)
+	}
+
+	return Binding{
+		ip,
+		layers.TCPPort(targetedPort),
+		layers.TCPPort(realPort),
+	}
+}
+
 func checkFlag() {
+	flag.Var(&bindings, "binding", "ex: --binding ip1:port1:port10 --binding ip2:port2:port12 will make tcp traffic for ip1:port1 go to localhost:port10 and traffic for ip1:port2 go to localhost:port12")
 	flag.Parse()
 	var err error
 
@@ -63,13 +110,26 @@ func checkFlag() {
 		log.Fatalln("\ngardening-cidr ip is not specified")
 	}
 
+	if len(bindings) == 0 {
+		flag.Usage()
+		log.Fatalln("\nPlease specify at least one binding")
+	}
+
+	for _, bindingString := range bindings {
+		binding := parseBinding(bindingString)
+		if !targetedIpnet.Contains(binding.targetedIp) {
+			log.Fatalf("%s binding is invalid because its IP is not in the targeted CIDR", bindingString)
+		}
+		table = append(table, binding)
+	}
+
 	targetedSlash, _ := targetedIpnet.Mask.Size()
 	gardeningSlash, _ := gardeningIpnet.Mask.Size()
 	if targetedSlash != gardeningSlash {
 		log.Fatalln("gardeningCidr and targetedCidr must have the same slash")
 	}
 
-	log.Printf("%s %s", targetedLoopback, gardeningLoopback)
+	log.Printf("%+v", table)
 }
 
 func runIP(args ...string) {
@@ -133,26 +193,26 @@ func gardeningIpToTargetedIp(gardeningIp net.IP) net.IP {
 	return translateInIpnet(gardeningIp, targetedIpnet)
 }
 
-func findPortIn(targetedIp net.IP, port layers.TCPPort) layers.TCPPort {
+func findPortIn(targetedIp net.IP, port layers.TCPPort) (found bool, dstPort layers.TCPPort) {
 	for _, te := range table {
 		if te.targetedIp.Equal(targetedIp) && port == te.targetedPort {
 			log.Printf("IN: replace %d port by %d", te.targetedPort, te.realPort)
-			return te.realPort
+			return true, te.realPort
 		}
 	}
 
-	return port
+	return false, 0
 }
 
-func findPortOut(targetedIp net.IP, port layers.TCPPort) layers.TCPPort {
+func findPortOut(targetedIp net.IP, port layers.TCPPort) (found bool, srcPort layers.TCPPort) {
 	for _, te := range table {
 		if te.targetedIp.Equal(targetedIp) && port == te.realPort {
 			log.Printf("OUT: replace %d port by %d", te.realPort, te.targetedPort)
-			return te.targetedPort
+			return true, te.targetedPort
 		}
 	}
 
-	return port
+	return false, 0
 }
 
 func routePacket(packet []byte) {
@@ -160,14 +220,20 @@ func routePacket(packet []byte) {
 	ipLayer := p.Layer(layers.LayerTypeIPv4).(*layers.IPv4)
 	tcpLayer := p.Layer(layers.LayerTypeTCP).(*layers.TCP)
 	if targetedIpnet.Contains(ipLayer.DstIP) {
-		log.Printf("To real tcp socket")
-		tcpLayer.DstPort = findPortIn(ipLayer.DstIP, tcpLayer.DstPort)
+		found, dstPort := findPortIn(ipLayer.DstIP, tcpLayer.DstPort)
+		if !found {
+			return
+		}
+		tcpLayer.DstPort = dstPort
 		ipLayer.SrcIP = targetedIpToGardeningIp(ipLayer.DstIP)
 		ipLayer.DstIP = targetedLoopback
 	} else if gardeningIpnet.Contains(ipLayer.DstIP) {
-		log.Printf("From real tcp socket")
 		ipLayer.SrcIP = gardeningIpToTargetedIp(ipLayer.DstIP)
-		tcpLayer.SrcPort = findPortOut(ipLayer.SrcIP, tcpLayer.SrcPort)
+		found, srcPort := findPortOut(ipLayer.SrcIP, tcpLayer.SrcPort)
+		if !found {
+			return
+		}
+		tcpLayer.SrcPort = srcPort
 		ipLayer.DstIP = targetedLoopback
 	}
 
@@ -181,7 +247,6 @@ func routePacket(packet []byte) {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("La tete du paquet maintenant")
 	newPacket := buf.Bytes()
 	logTcpPacket(newPacket)
 	sendRawIPv4Packet(newPacket)
@@ -239,7 +304,6 @@ func logTcpPacket(packet []byte) {
 	}
 
 	log.Printf("TCP Packet Received from IP %s -> %s |-> %d: %d\n", header.Src, header.Dst, srcPort, dstPort)
-
 }
 
 func main() {
@@ -256,8 +320,6 @@ func main() {
 
 		packet := packetBuffer[:n]
 		if isTcpPacket(packet) {
-			log.Println("\n\n\n")
-			logTcpPacket(packet)
 			routePacket(packet)
 		}
 	}
