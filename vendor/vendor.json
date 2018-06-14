@@ -1,0 +1,49 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "v/57yYO54fC+jbuYOmBlroG/My4=",
+			"path": "github.com/google/gopacket",
+			"revision": "055652d5cea2b6a2fde00cfc331add6e413af636",
+			"revisionTime": "2018-06-04T05:31:14Z"
+		},
+		{
+			"checksumSHA1": "n5RrQaz4INwqXDIwBsjarR7zy4A=",
+			"path": "github.com/google/gopacket/layers",
+			"revision": "055652d5cea2b6a2fde00cfc331add6e413af636",
+			"revisionTime": "2018-06-04T05:31:14Z"
+		},
+		{
+			"checksumSHA1": "mLDO0yxEqhYZArs/tz5hVp9k5bY=",
+			"path": "github.com/songgao/water",
+			"revision": "bf1a5d02778fcf40c282de352a53b1fe1f5b9f96",
+			"revisionTime": "2018-04-20T06:47:39Z"
+		},
+		{
+			"checksumSHA1": "NjyXtXsaf0ulRJn6HQSP1FqGL4A=",
+			"path": "golang.org/x/net/bpf",
+			"revision": "1e491301e022f8f977054da4c2d852decd59571f",
+			"revisionTime": "2018-05-30T06:29:46Z"
+		},
+		{
+			"checksumSHA1": "CHpYrf4HcmHB60gnTNxgjGgY53w=",
+			"path": "golang.org/x/net/internal/iana",
+			"revision": "1e491301e022f8f977054da4c2d852decd59571f",
+			"revisionTime": "2018-05-30T06:29:46Z"
+		},
+		{
+			"checksumSHA1": "wUFe08HvcVTwkXK7dojH3W7CQVg=",
+			"path": "golang.org/x/net/internal/socket",
+			"revision": "1e491301e022f8f977054da4c2d852decd59571f",
+			"revisionTime": "2018-05-30T06:29:46Z"
+		},
+		{
+			"checksumSHA1": "NITWzmU2rmFojwdCaxjbvR26B7U=",
+			"path": "golang.org/x/net/ipv4",
+			"revision": "1e491301e022f8f977054da4c2d852decd59571f",
+			"revisionTime": "2018-05-30T06:29:46Z"
+		}
+	],
+	"rootPath": "github.com/strokyl/tun_fun"
+}
