@@ -12,7 +12,7 @@ integration_test() {
            -gardening-cidr 192.168.43.0/24 \
            -targeted-cidr 192.168.42.0/24)
 
-    sleep 5
+    sleep 10
     [[ "$(nc -l -p 8080)" == "ping" ]] &
     echo "ping" | nc -q 0 192.168.42.42 80
 
